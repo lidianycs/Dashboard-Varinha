@@ -1,0 +1,333 @@
+#| echo: false
+#| output: false
+
+# --- 1. CONFIGURAÇÃO E CARREGAMENTO DE DADOS ---
+# Esta célula prepara o ambiente e carrega os dados do seu CSV.
+
+import pandas as pd
+import panel as pn
+import random
+import os
+import re
+
+# Ativa a extensão do Panel para interatividade
+pn.extension()
+
+# Definição do Estilo CSS para os "Boxes"
+# (Novo CSS com tema corporativo/azul)
+CSS_STYLE = """
+<style>
+body {
+    background-color: #f0f4f8; /* Tom de azul bem claro para o fundo */
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+    color: #333;
+}
+.card-container {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 24px;
+    padding: 24px;
+}
+.info-box {
+    background-color: #ffffff;
+    border: 1px solid #d6e0eb;
+    border-radius: 8px;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.04);
+    padding: 24px;
+    flex: 1 1 320px; /* Cresce e encolhe, com base de 320px */
+    min-width: 320px;
+    max-width: 480px;
+}
+.info-box h2 {
+    font-size: 1.6rem;
+    font-weight: 600;
+    margin-top: 0;
+    margin-bottom: 20px;
+    color: #004a99; /* Azul corporativo escuro */
+}
+.info-box .overall-stat {
+    font-size: 1.1rem;
+    font-weight: 500;
+    color: #212529;
+    margin-bottom: 24px;
+    border-left: 4px solid #0056b3; /* Azul corporativo médio */
+    padding-left: 12px;
+}
+.info-box .breakdown-list {
+    list-style: none;
+    padding: 0;
+    margin: 0 0 20px 0;
+}
+.info-box .breakdown-list li {
+    padding: 12px 0;
+    border-bottom: 1px solid #e9ecef;
+}
+.info-box .breakdown-list li:last-child {
+    border-bottom: none;
+}
+.info-box .factor-info {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 8px;
+}
+.info-box .factor-name {
+    font-size: 0.95rem;
+    color: #495057;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    padding-right: 10px;
+}
+.info-box .factor-percent {
+    font-size: 0.95rem;
+    font-weight: 600;
+    color: #004a99;
+    white-space: nowrap;
+}
+.info-box .progress-bar-container {
+    width: 100%;
+    background-color: #e9ecef;
+    border-radius: 4px;
+    height: 8px;
+    overflow: hidden;
+}
+.info-box .progress-bar {
+    height: 100%;
+    background-color: #0056b3;
+    border-radius: 4px;
+    transition: width 0.3s ease-in-out;
+}
+.info-box .summary-text {
+    font-size: 0.9rem;
+    color: #6c757d;
+    line-height: 1.6;
+    padding-top: 15px;
+    border-top: 1px solid #e9ecef;
+    margin-top: 15px;
+}
+</style>
+"""
+
+def load_codebook(filename="codebook.csv"):
+    """Carrega o codebook e cria um mapa de (categoria, fator) -> descrição."""
+    codebook_map = {}
+    try:
+        # Tenta carregar com encoding 'utf-8', se falhar, tenta 'latin1'
+        try:
+            df_codebook = pd.read_csv(filename, sep=';', encoding='utf-8')
+        except UnicodeDecodeError:
+            df_codebook = pd.read_csv(filename, sep=';', encoding='latin1')
+            
+        for _, row in df_codebook.iterrows():
+            # Limpa e verifica se os dados são válidos
+            cat = row.get('category')
+            fact = row.get('factor')
+            desc = row.get('description')
+            
+            if pd.notna(cat) and pd.notna(fact) and pd.notna(desc):
+                codebook_map[(cat.strip(), fact.strip())] = desc.strip()
+                
+    except FileNotFoundError:
+        print(f"Arquivo do codebook '{filename}' não encontrado.")
+    except Exception as e:
+        print(f"Erro ao ler o codebook: {e}")
+        
+    return codebook_map
+
+def load_and_process_data(filename="dados.csv"):
+    """Carrega e processa o CSV, dividindo a coluna 'label'."""
+    try:
+        # Tenta carregar com encoding 'utf-8', se falhar, tenta 'latin1'
+        try:
+            df = pd.read_csv(filename, sep=';', encoding='utf-8')
+        except UnicodeDecodeError:
+            df = pd.read_csv(filename, sep=';', encoding='latin1')
+            
+    except FileNotFoundError:
+        print("Arquivo CSV 'dados.csv' não encontrado.")
+        return pd.DataFrame(columns=["id", "setor", "categoria", "fator", "response_id"])
+    except Exception as e:
+        print(f"Erro ao ler o CSV: {e}")
+        return pd.DataFrame(columns=["id", "setor", "categoria", "fator", "response_id"])
+
+    # Verifica se as colunas 'label' e 'response_id' existem
+    if 'label' not in df.columns:
+        print("Erro: A coluna 'label' não foi encontrada no CSV.")
+        return pd.DataFrame(columns=["id", "setor", "categoria", "fator", "response_id"])
+    if 'response_id' not in df.columns:
+        print("Erro: A coluna 'response_id' não foi encontrada no CSV.")
+        return pd.DataFrame(columns=["id", "setor", "categoria", "fator", "response_id"])
+
+    # Remove linhas com valores nulos em 'label' ou 'response_id'
+    df = df.dropna(subset=['label', 'response_id'])
+    # Remove linhas com 'NC' na coluna 'label'
+    df = df[df['label'].str.upper() != 'NC']
+
+    # Processa a coluna "label" para extrair Categoria e Fator
+    # Usa n=1 para dividir apenas no primeiro hífen
+    # Isso lida com casos como "Gestão/Gerência-Autonomia"
+    df[['categoria', 'fator']] = df['label'].astype(str).str.split('-', n=1, expand=True)
+    
+    # Limpa possíveis espaços em branco e remove aspas
+    if 'categoria' in df.columns:
+        df['categoria'] = df['categoria'].str.strip().str.strip('"')
+    if 'fator' in df.columns:
+        df['fator'] = df['fator'].str.strip().str.strip('"')
+    
+    # Remove linhas onde a divisão falhou (ou seja, não havia '-')
+    # 'fator' ficará como NaN/None se o split não encontrar o '-'
+    df = df.dropna(subset=['categoria', 'fator'])
+    
+    # Limpa setores nulos também, para o filtro
+    df = df.dropna(subset=['setor'])
+    
+    return df
+
+def get_summary_stats(category, percents, total_cat_respondents, codebook_map):
+    """Gera o texto de resumo e a estatística principal."""
+    
+    # Verifica se 'percents' não está vazio
+    if percents.empty:
+        return "Sem dados", "Nenhuma resposta registrada para esta categoria."
+
+    # Encontra o fator (resposta) mais comum
+    most_common_fator = percents.idxmax()
+    most_common_percent = percents.max()
+
+    overall_stat = f"<strong>{percents.get(most_common_fator, 0):.0f}%</strong> mencionaram '{most_common_fator}'."
+    
+    # Cria o texto base do resumo
+    summary_text = f"De <strong>{total_cat_respondents}</strong> respondentes nesta categoria, a resposta mais frequente foi '{most_common_fator}' ({most_common_percent:.0f}%)."
+    
+    # Busca a descrição no codebook
+    description = codebook_map.get((category, most_common_fator), "")
+    
+    if description:
+        # Formata a descrição para se assemelhar ao exemplo do usuário
+        # Pega a descrição, remove aspas se houver, e formata.
+        description = description.strip().strip('"')
+        
+        # Garante que a primeira letra da descrição seja minúscula
+        if len(description) > 0:
+            description_formatted = description[0].lower() + description[1:]
+        else:
+            description_formatted = ""
+        
+        # Adiciona a descrição formatada ao texto de resumo
+        # (Usando uma fraseologia baseada no seu exemplo)
+        summary_text += f" Isso pode indicar um foco em: {description_formatted}."
+
+    return overall_stat, summary_text
+
+# --- 2. EXECUÇÃO INICIAL ---
+# Carregamos os dados reais do arquivo fornecido
+df_full = load_and_process_data()
+# Carregamos o codebook
+codebook_map = load_codebook()
+
+# Cria o widget de filtro a partir dos dados carregados
+if not df_full.empty:
+    setor_options = ['Todos'] + sorted(df_full['setor'].unique().tolist())
+else:
+    setor_options = ['Todos']
+    
+setor_widget = pn.widgets.Select(name='Filtrar por Setor', options=setor_options, value='Todos')
+
+
+
+#| echo: false
+# Esta célula exibe o widget de filtro na barra lateral
+setor_widget
+
+
+#| echo: false
+#| panel: true 
+# A tag 'panel: true' torna esta célula reativa aos widgets
+
+# Injeta o CSS na página
+pn.pane.HTML(CSS_STYLE).servable()
+
+@pn.depends(setor=setor_widget.param.value)
+def display_boxes(setor):
+    """
+    Função reativa que redesenha os boxes com base no filtro.
+    """
+    
+    # Verifica se o df_full foi carregado corretamente
+    if df_full.empty:
+        return pn.pane.Markdown("### Erro ao carregar os dados. Verifique o arquivo 'dados.csv'.")
+    
+    # Filtra o DataFrame
+    if setor == 'Todos':
+        dff = df_full.copy()
+    else:
+        dff = df_full[df_full['setor'] == setor].copy()
+    
+    # Usa 'response_id' para calcular respondentes únicos
+    total_respondents = dff['response_id'].nunique()
+    
+    if total_respondents == 0:
+        return pn.pane.Markdown("### Nenhum dado encontrado para este filtro.")
+    
+    # Cabeçalho
+    header = pn.pane.Markdown(f"### Mostrando resultados para: {setor} ({total_respondents} respondentes únicos)",
+                               margin=(0, 0, 10, 24))
+    
+    all_boxes_html = []
+    
+    # Itera sobre cada categoria (pergunta)
+    categories = sorted(dff['categoria'].unique())
+    
+    for cat in categories:
+        cat_df = dff[dD['categoria'] == cat]
+        
+        # Total de respondentes únicos para esta categoria
+        total_cat_respondents = cat_df['response_id'].nunique()
+        
+        if total_cat_respondents == 0:
+            continue
+            
+        # Calcula contagens e percentuais
+        # Usamos o número de respostas (linhas), não respondentes únicos, para os percentuais
+        counts = cat_df['fator'].value_counts()
+        percents = (counts / counts.sum()) * 100
+        
+        # Pega os textos de resumo
+        # Passa o codebook_map para a função
+        overall, summary = get_summary_stats(cat, percents, total_cat_respondents, codebook_map)
+        
+        # Constrói a lista de fatores (respostas) com a barra de progresso
+        breakdown_html = "<ul class='breakdown-list'>"
+        # Ordena os fatores pelo percentual (mais comum primeiro)
+        for fator, percent in percents.sort_values(ascending=False).items():
+            breakdown_html += f"""
+            <li>
+                <div class="factor-info">
+                    <span class="factor-name" title="{fator}">{fator}</span>
+                    <strong class="factor-percent">{percent:.1f}%</strong>
+                </div>
+                <div class="progress-bar-container">
+                    <div class="progress-bar" style="width: {percent:.1f}%;"></div>
+                </div>
+            </li>
+            """
+        breakdown_html += "</ul>"
+        
+        # Monta o Box
+        box_html = f"""
+        <div class='info-box'>
+            <h2>{cat}</h2>
+            <p class='overall-stat'>{overall}</p>
+            {breakdown_html}
+            <p class='summary-text'>{summary}</p>
+        </div>
+        """
+        all_boxes_html.append(box_html)
+    
+    # Retorna o cabeçalho e os boxes
+    return pn.Column(
+        header,
+        pn.pane.HTML(f"<div class='card-container'>{''.join(all_boxes_html)}</div>")
+    )
+
