@@ -16,7 +16,7 @@ O dashboard apresenta os dados em *boxes* categorizados, permitindo a **filtrage
 ├── dados.csv          # Dados brutos da pesquisa (necessário para executar)
 ├── codebook.csv       # "Dicionário" que mapeia categorias e descrições
 ├── requirements.txt   # Dependências Python do projeto
-└── README.md          # Este arquivo
+└── README.md          # Este ficheiro
 ```
 
 ---
@@ -43,7 +43,7 @@ Crie e ative um ambiente virtual (recomendado):
 ```bash
 # Windows
 python -m venv venv
-.env\ScriptsActivate
+.env\Scriptsctivate
 
 # macOS / Linux
 python3 -m venv venv
