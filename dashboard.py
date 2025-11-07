@@ -1,7 +1,8 @@
 #
 # Name: dashboard.py
-# Version: 1.0.0
-# License: MIT (ou a licença que preferir)
+# Version: 1.6.0 
+# Author: lidianycs
+# License: MIT 
 # Usage:
 #   1. Certifique-se de que 'dados.csv' e 'codebook.csv' estão na mesma pasta.
 #   2. Instale as dependências: pip install pandas panel
@@ -10,9 +11,6 @@
 
 import pandas as pd
 import panel as pn
-import random
-import os
-import re
 
 pn.extension()
 
@@ -131,7 +129,7 @@ def load_codebook(filename="codebook.csv"):
                 codebook_map[(cat_clean, fact_clean)] = desc_clean
                 
     except FileNotFoundError:
-        print(f"Ficheiro do codebook '{filename}' não encontrado.")
+        print(f"Arquivo do codebook '{filename}' não encontrado.")
     except Exception as e:
         print(f"Erro ao ler o codebook: {e}")
         
@@ -146,7 +144,7 @@ def load_and_process_data(filename="dados.csv"):
             df = pd.read_csv(filename, sep=';', encoding='latin1')
             
     except FileNotFoundError:
-        print("Ficheiro CSV 'dados.csv' não encontrado.")
+        print("Arquivo CSV 'dados.csv' não encontrado.")
         return pd.DataFrame(columns=["id", "setor", "categoria", "fator", "response_id"])
     except Exception as e:
         print(f"Erro ao ler o CSV: {e}")
@@ -169,7 +167,8 @@ def load_and_process_data(filename="dados.csv"):
     
     return df
 
-def get_summary_stats(category, percents, total_cat_respondents, codebook_map):
+
+def get_summary_stats(category, percents, total_cat_participants, total_mentions, codebook_map):
     """Gera o texto de resumo e a estatística principal."""
     if percents.empty:
         return "Sem dados", "Nenhuma resposta registada para esta categoria."
@@ -178,7 +177,9 @@ def get_summary_stats(category, percents, total_cat_respondents, codebook_map):
     most_common_percent = percents.max()
 
     overall_stat = f"<strong>{percents.get(most_common_fator, 0):.0f}%</strong> mencionaram '{most_common_fator}'."
-    summary_text = f"De <strong>{total_cat_respondents}</strong> respondentes nesta categoria, a resposta mais frequente foi '{most_common_fator}' ({most_common_percent:.0f}%)."
+    
+    
+    summary_text = f"Esta categoria foi mencionada <strong>{total_mentions}</strong> vezes por <strong>{total_cat_participants}</strong> participantes, a resposta mais frequente foi '{most_common_fator}' ({most_common_percent:.0f}%)."
     
     description = codebook_map.get((category, most_common_fator), "")
     
@@ -236,36 +237,56 @@ def display_boxes(setor):
     Função reativa que redesenha os boxes com base no filtro.
     """
     if df_full.empty:
-        return pn.pane.Markdown("### Erro ao carregar os dados. Verifique o ficheiro 'dados.csv'.")
+        return pn.pane.Markdown("### Erro ao carregar os dados. Verifique o arquivo 'dados.csv'.")
     
     if setor == 'Todos':
         dff = df_full.copy()
     else:
         dff = df_full[df_full['setor'] == setor].copy()
     
-    total_respondents = dff['response_id'].nunique()
+    # Renomeado para 'participants' para consistência
+    total_participants = dff['response_id'].nunique()
     
-    if total_respondents == 0:
+    if total_participants == 0:
         return pn.pane.Markdown("### Nenhum dado encontrado para este filtro.")
     
-    header = pn.pane.Markdown(f"### Mostrando resultados para: {setor} ({total_respondents} respondentes únicos)",
-                               margin=(0, 0, 10, 24))
+    # --- ALTERAÇÃO 3: Atualiza o header para "participantes" ---
+    header = pn.pane.Markdown(f"### Mostrando resultados para: {setor} ({total_participants} participantes únicos)",
+                                  margin=(0, 0, 10, 24))
     
     all_boxes_html = []
-    categories = sorted(dff['categoria'].unique())
     
-    for cat in categories:
+    # Calcular e ordenar por PARTICIPANTES ÚNICOS
+    category_unique_participants = dff.groupby('categoria')['response_id'].nunique().sort_values(ascending=False)
+    
+    # Calcular o total de menções para os percentuais
+    category_mentions = dff['categoria'].value_counts()
+    
+    # Obter a lista de categorias ordenada por participantes únicos
+    categories_sorted_by_uniques = category_unique_participants.index.tolist()
+    
+   
+    for cat in categories_sorted_by_uniques:
         cat_df = dff[dff['categoria'] == cat]
         
-        total_cat_respondents = cat_df['response_id'].nunique()
+        # Y: Total de participantes únicos (para o título e sumário)
+        total_cat_participants = category_unique_participants.get(cat, 0)
         
-        if total_cat_respondents == 0:
+        # X: Total de menções (para os percentuais e sumário)
+        total_mentions_for_cat = category_mentions.get(cat, 0)
+        
+        if total_cat_participants == 0 or total_mentions_for_cat == 0:
             continue
             
+        # Contagem de menções por fator
         counts = cat_df['fator'].value_counts()
-        percents = (counts / counts.sum()) * 100
         
-        overall, summary = get_summary_stats(cat, percents, total_cat_respondents, codebook_map)
+        # Percentuais são baseados no TOTAL DE MENÇÕES (X)
+        percents = (counts / total_mentions_for_cat) * 100
+        
+       
+        overall, summary = get_summary_stats(cat, percents, total_cat_participants, total_mentions_for_cat, codebook_map)
+        
         
         percents_main = percents[percents >= 5]
         percent_outros = percents[percents < 5].sum()
@@ -289,9 +310,10 @@ def display_boxes(setor):
             """
         breakdown_html += "</ul>"
         
+        
         box_html = f"""
         <div class='info-box'>
-            <h2>{cat}</h2>
+            <h2>{cat} - {total_cat_participants}</h2>
             <p class='overall-stat'>{overall}</p>
             {breakdown_html}
             <p class='summary-text'>{summary}</p>
@@ -317,4 +339,3 @@ template = pn.template.FastListTemplate(
 print("Iniciando o servidor... Pressione CTRL+C para parar.")
 print("Acesse seu dashboard no navegador em: http://localhost:5006")
 pn.serve(template, port=5006, show=True)
-
