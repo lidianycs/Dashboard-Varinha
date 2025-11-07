@@ -43,7 +43,7 @@ Crie e ative um ambiente virtual (recomendado):
 ```bash
 # Windows
 python -m venv venv
-.env\Scriptsctivate
+.venv\Scripts\Activate
 
 # macOS / Linux
 python3 -m venv venv
