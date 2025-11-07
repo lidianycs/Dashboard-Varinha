@@ -55,13 +55,6 @@ Instale as dependências Python:
 ```bash
 pip install -r requirements.txt
 ```
-
-Se não tiver um `requirements.txt`, pode instalar manualmente:
-
-```bash
-pip install pandas panel
-```
-
 ---
 
 ### 2️⃣ Executar o Dashboard
