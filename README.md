@@ -16,7 +16,7 @@ O dashboard apresenta os dados em *boxes* categorizados, permitindo a **filtrage
 ├── dados.csv          # Dados brutos da pesquisa (necessário para executar)
 ├── codebook.csv       # "Dicionário" que mapeia categorias e descrições
 ├── requirements.txt   # Dependências Python do projeto
-└── README.md          # Este ficheiro
+└── README.md          # Este arquivo
 ```
 
 ---
